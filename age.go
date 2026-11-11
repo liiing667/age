@@ -400,6 +400,9 @@ func multiUnwrap(unwrap func(*Stanza) ([]byte, error), stanzas []*Stanza) ([]byt
 // different system, without sharing the ciphertext) and then the file key can
 // be used with [NewInjectedFileKeyIdentity].
 //
+// For a version that also binds the header to the ciphertext nonce and payload
+// length, see [ExtractHeaderBinding].
+//
 // This is a low-level function that most users won't need.
 func ExtractHeader(src io.Reader) ([]byte, error) {
 	hdr, _, err := format.Parse(src)
@@ -417,6 +420,9 @@ func ExtractHeader(src io.Reader) ([]byte, error) {
 //
 // The detached header can be produced by [ExtractHeader], and the
 // returned file key can be used with [NewInjectedFileKeyIdentity].
+//
+// For a version that verifies a binding to the ciphertext before returning the
+// file key, see [DecryptHeaderBinding].
 //
 // This is a low-level function that most users won't need.
 // It is the caller's responsibility to keep track of what file the

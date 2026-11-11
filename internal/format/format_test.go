@@ -72,6 +72,42 @@ func TestHeaderMarshalNoStanzas(t *testing.T) {
 	}
 }
 
+func TestHeaderFingerprintAndParseExact(t *testing.T) {
+	h := &format.Header{
+		Recipients: []*format.Stanza{{Type: "test", Body: []byte("body")}},
+		MAC:        bytes.Repeat([]byte{1}, 32),
+	}
+	var buf bytes.Buffer
+	if err := h.Marshal(&buf); err != nil {
+		t.Fatal(err)
+	}
+	header := buf.Bytes()
+
+	exact, err := format.ParseExact(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint, err := exact.Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fingerprint2, err := h.Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fingerprint != fingerprint2 {
+		t.Error("fingerprint changed after a parse and serialize round trip")
+	}
+
+	if _, err := format.ParseExact(append(header, 'x')); !errors.Is(err, format.ErrTrailingHeaderData) {
+		t.Fatalf("trailing data was accepted: %v", err)
+	}
+	multiple := append(append([]byte{}, header...), header...)
+	if _, err := format.ParseExact(multiple); !errors.Is(err, format.ErrMultipleHeaders) {
+		t.Fatalf("multiple headers were accepted: %v", err)
+	}
+}
+
 func TestParseLimits(t *testing.T) {
 	const (
 		intro          = "age-encryption.org/v1\n"

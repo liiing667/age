@@ -8,6 +8,7 @@ package format
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -167,6 +168,18 @@ func (h *Header) Marshal(w io.Writer) error {
 	return err
 }
 
+// Fingerprint returns the SHA-256 digest of the canonical serialized header.
+//
+// The header is re-serialized before hashing, so equivalent textual encodings
+// of the same parsed header have the same fingerprint.
+func (h *Header) Fingerprint() ([sha256.Size]byte, error) {
+	var buf bytes.Buffer
+	if err := h.Marshal(&buf); err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	return sha256.Sum256(buf.Bytes()), nil
+}
+
 type StanzaReader struct {
 	r interface {
 		ReadBytes(delim byte) ([]byte, error)
@@ -279,6 +292,14 @@ func errorf(format string, a ...any) error {
 	return &ParseError{fmt.Errorf(format, a...)}
 }
 
+// ErrMultipleHeaders is returned by [ParseExact] when the input contains more
+// than one age header.
+var ErrMultipleHeaders = errors.New("multiple age headers")
+
+// ErrTrailingHeaderData is returned by [ParseExact] when the input contains
+// data after a complete age header.
+var ErrTrailingHeaderData = errors.New("trailing data after header")
+
 // describeIntro returns a quoted description of a bad intro line, or an empty
 // string if the line contains recognizable private key material.
 func describeIntro(line string) string {
@@ -376,6 +397,31 @@ func Parse(input io.Reader) (*Header, io.Reader, error) {
 	}
 	payload := io.MultiReader(bytes.NewReader(buf), input)
 	return h, payload, nil
+}
+
+// ParseExact parses a single detached header and rejects any trailing data.
+//
+// Unlike [Parse], which is meant to read a complete age file, ParseExact
+// requires the input to contain exactly one header. This prevents a detached
+// header blob from silently containing or being concatenated with a second
+// header.
+func ParseExact(input []byte) (*Header, error) {
+	h, payload, err := Parse(bytes.NewReader(input))
+	if err != nil {
+		return nil, err
+	}
+
+	prefix := make([]byte, len(intro))
+	n, err := io.ReadFull(payload, prefix)
+	switch {
+	case n == len(intro) && bytes.Equal(prefix, []byte(intro)):
+		return nil, &ParseError{ErrMultipleHeaders}
+	case n > 0:
+		return nil, &ParseError{ErrTrailingHeaderData}
+	case err != nil && !errors.Is(err, io.EOF):
+		return nil, errorf("failed to read header: %w", err)
+	}
+	return h, nil
 }
 
 func splitArgs(line []byte) (string, []string) {
